@@ -8,3 +8,6 @@ allowBuilds:
   '@prisma/engines': true
   esbuild: true
   prisma: true
+
+# Agents run without a TTY; never block on "remove node_modules?" prompts.
+confirmModulesPurge: false

@@ -1,57 +1,95 @@
 # Mortgage Tracker
 
 A small full-stack proof of concept: calculate a mortgage, save scenarios to
-Postgres, and view amortization schedules (cached in Redis).
+Postgres, and view amortization schedules (cached in Redis). It is also a test
+bed for running several AI agents in parallel with self-hosted OpenHands.
 
 **Stack:** Fastify 5 · Prisma 6 / Postgres 17 · Redis 8 · zod 4 · Vite 8 + React 19 · Vitest · pnpm workspaces
 
-It is built to be **parallel-safe**: any number of worktrees (yours or AI
-agents') can run their own full stack side by side without colliding.
+## One dev runtime, used by you and by agents
 
-## Quick start
+| Piece             | Defined in                          | Used by you            | Used by agents                  |
+|-------------------|-------------------------------------|------------------------|---------------------------------|
+| Postgres, Redis   | `infra/compose.yml`                 | slot 0                 | slots 1–9, same file and images |
+| Node version      | `.node-version`                     | your Node              | installed by `scripts/setup.sh` |
+| pnpm version      | `package.json#packageManager`       | your pnpm              | installed by `scripts/setup.sh` |
+| Ports, URLs, names| `scripts/dev-env.sh` (from the slot)| `.env`                 | `.env` (DB host auto-detected)  |
+| Setup steps       | `scripts/setup.sh`                  | `pnpm setup`           | run by the provisioner's bootstrap |
 
-```bash
-pnpm install
-scripts/dev-env.sh 0     # writes .env for slot 0
-pnpm infra:up            # Postgres + Redis for this worktree
-pnpm db:migrate && pnpm db:seed
-pnpm dev                 # web http://localhost:5173 · api http://localhost:3001
-pnpm check               # typecheck + tests
-```
+Databases always run on the host through the one compose file. Only the code and
+Node toolchain live where the agent works.
 
-## How parallel isolation works
-
-Everything that could collide is derived from a **slot** number (0–9):
-
-| Slot | Web  | API  | Postgres | Redis | Compose project      |
-|------|------|------|----------|-------|----------------------|
-| 0    | 5173 | 3001 | 5432     | 6379  | `mt-mortgage-tracker` |
-| 3    | 5203 | 3031 | 5462     | 6409  | `mt-mortgage-tracker-task-03` |
-
-- `infra/compose.yml` has no `container_name` and no fixed ports. Docker namespaces containers, volumes and networks by `COMPOSE_PROJECT_NAME`.
-- The API, web app and Prisma all read the root `.env`. No port is hardcoded.
-- Vite uses `strictPort`, so a port clash fails loudly instead of silently moving to another port.
-- Tests use a separate Postgres schema and Redis db, so `pnpm check` never wipes your dev data.
-
-### One isolated workspace per agent
+## Manual development
 
 ```bash
-pnpm agent:new task-03-yearly 3   # worktree ../mortgage-tracker-task-03-yearly + own DB, migrated & seeded
-cd ../mortgage-tracker-task-03-yearly && pnpm dev
-pnpm agent:rm task-03-yearly      # removes containers, volumes and worktree; keeps the branch
+scripts/dev-env.sh 0 && pnpm infra:up   # Postgres + Redis for slot 0
+pnpm setup                              # deps, migrate, seed
+pnpm dev                                # web http://localhost:5173 · api http://localhost:4001
+pnpm check                              # typecheck + tests
 ```
 
-(`git worktree` needs at least one commit on the current branch.)
+## Parallel agents with self-hosted OpenHands
 
-### With OpenHands
+You write a prompt in OpenHands (from anywhere). Only **then** does a sandbox get
+created, and it sets itself up: its own copy of the code, branch and database.
 
-The OpenHands sandbox has no Docker, so run each slot's Postgres and Redis on the host and let the sandbox connect to them:
+```
+you: "Do task 5"  →  OpenHands starts a sandbox (one container per conversation)
+                     │  workspace = ~/Playground/mt-launchpad (contains only AGENTS.md)
+                     ▼
+agent: curl host.docker.internal:7070/bootstrap.sh | bash -s 05-csv
+                     │  provisioner: claims a free slot (1–9), starts its Postgres+Redis
+                     │               from infra/compose.yml, hands out a git bundle of the repo
+                     ▼
+agent: clones into work/05-csv, setup.sh, does the task, pnpm check, commits
+                     ▼
+agent: curl host.docker.internal:7070/deliver.sh | bash
+                        provisioner: fetches task/05-csv into this repo, deletes the DB, frees the slot
+```
 
-1. On the host: `pnpm agent:new task-05-csv 5` (this creates the worktree and starts the DB).
-2. Start an OpenHands session with that worktree mounted as the workspace and `SLOT=5` in the sandbox env.
-3. `.openhands/setup.sh` runs automatically. It writes `.env` pointing at `host.docker.internal`, installs deps and migrates.
+### Run the two host services
 
-Each agent then has its own code, DB and ports. See `TASKS.md` for ten test tasks.
+```bash
+# 1. Slot provisioner (agents' only way to get a DB; they never get Docker access)
+pnpm prov
+
+# 2. OpenHands, one container per conversation
+OH_CONVERSATION_RUNTIME=docker npx @openhands/agent-canvas@1.35.0
+```
+
+In OpenHands (http://localhost:8000): set your LLM under **Settings → LLM**, then
+**Open Workspace** → `~/Playground/mt-launchpad` and prompt, for example:
+
+> Do task 5 from TASKS.md.
+
+Start as many conversations as you like (up to 9 at once). Agents only see
+**committed** code on your current branch, so commit before you trigger tasks.
+
+### Review results
+
+```bash
+git branch --list 'task/*'
+git log -p HEAD..task/05-csv
+git merge task/05-csv
+```
+
+### Operate
+
+| Command                 | What it does                                          |
+|-------------------------|-------------------------------------------------------|
+| `pnpm prov:status`      | Show claimed slots                                    |
+| `pnpm prov:release 3`   | Force-free slot 3 (stops its DB, deletes its data)    |
+
+Slots that are never delivered are released automatically after 4h (`MT_MAX_AGE_HOURS`).
+Agents' working copies stay in `~/Playground/mt-launchpad/work/` for inspection, and are safe to delete.
+
+### Slots
+
+| Slot | Who   | Web  | API  | Postgres | Redis | Compose project |
+|------|-------|------|------|----------|-------|-----------------|
+| 0    | you   | 5173 | 4001 | 5432     | 6379  | `mt-s0`         |
+| 1    | agent | 5183 | 4011 | 5442     | 6389  | `mt-s1`         |
+| N    | agent | +10N | +10N | +10N     | +10N  | `mt-sN`         |
 
 ## API
 

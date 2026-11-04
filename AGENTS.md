@@ -3,6 +3,23 @@
 Mortgage Tracker is a pnpm monorepo: a Fastify API with Prisma/Postgres and a
 Redis cache, a Vite + React web app, and shared zod schemas and math.
 
+## Setup
+If you got here through the OpenHands launchpad, setup is **already done**.
+Otherwise (or after a sandbox restart) run:
+```bash
+bash scripts/setup.sh
+```
+This installs the pinned Node and pnpm if missing, writes `.env` for this
+checkout's slot (from `.slot`), installs deps, migrates and seeds. Postgres and
+Redis **already run on the host** for your slot. Do not try to start them, do
+not install Postgres or Redis yourself, and do not run `docker`. If `setup.sh`
+can't reach the DB, stop and report it.
+
+## Git
+- You are on branch `task/<name>`. Commit your work there with clear messages.
+- Don't push (there is no remote), switch branches, rebase or edit `.slot`/`.env`.
+- Finish with a clean working tree: everything committed. Then deliver (see the launchpad's AGENTS.md).
+
 ## Layout
 - `packages/shared`: zod schemas and amortization math. Used by **both** the API and the web app, so put any calculation here, never in a component or route.
 - `apps/api`: Fastify 5. Routes are in `src/scenarios/routes.ts`. `src/scenarios/repo.ts` converts between dollars (API) and integer cents (DB). The schema is in `prisma/schema.prisma`.
@@ -34,3 +51,4 @@ for every new endpoint or behavior.
 1. `pnpm check` passes.
 2. The task's acceptance criteria in `TASKS.md` are met.
 3. New behavior has tests: unit tests in `packages/shared`, integration tests in `apps/api/test`.
+4. All work is committed on your `task/<name>` branch.

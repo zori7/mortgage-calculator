@@ -3,7 +3,7 @@ import { z } from "zod";
 const Env = z.object({
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
-  API_PORT: z.coerce.number().int().default(3001),
+  API_PORT: z.coerce.number().int().default(4001),
 });
 
 export type Env = z.infer<typeof Env>;

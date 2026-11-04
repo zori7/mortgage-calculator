@@ -1,7 +1,7 @@
 import { AmortizationRow, AmortizationSummary, ScenarioWithSummary, type ScenarioCreate } from "@mt/shared";
 import { z } from "zod";
 
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:4001";
 
 export class ApiError extends Error {
   constructor(
