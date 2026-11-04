@@ -1,0 +1,20 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A saved mortgage scenario. Money is stored in integer cents.
+model Scenario {
+  id                String   @id @default(cuid())
+  name              String
+  principalCents    Int
+  annualRatePct     Float
+  termYears         Int
+  extraMonthlyCents Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}

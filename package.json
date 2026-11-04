@@ -1,0 +1,27 @@
+{
+  "name": "mortgage-tracker",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "infra:up": "docker compose -f infra/compose.yml --env-file .env up -d --wait",
+    "infra:down": "docker compose -f infra/compose.yml --env-file .env down",
+    "infra:reset": "docker compose -f infra/compose.yml --env-file .env down -v",
+    "db:migrate": "pnpm --filter @mt/api db:migrate",
+    "db:seed": "pnpm --filter @mt/api db:seed",
+    "db:reset": "pnpm --filter @mt/api db:reset",
+    "dev": "concurrently -k -n api,web -c blue,green \"pnpm --filter @mt/api dev\" \"pnpm --filter @mt/web dev\"",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "check": "pnpm typecheck && pnpm test",
+    "agent:new": "bash scripts/new-agent.sh",
+    "agent:rm": "bash scripts/remove-agent.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "typescript": "^6.0.3"
+  }
+}

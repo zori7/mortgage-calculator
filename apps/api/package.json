@@ -1,0 +1,33 @@
+{
+  "name": "@mt/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "start": "dotenv -e ../../.env -- tsx src/index.ts",
+    "typecheck": "tsc -p .",
+    "test": "dotenv -e ../../.env -- vitest run",
+    "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "db:seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "db:reset": "dotenv -e ../../.env -- prisma migrate reset --force",
+    "db:studio": "dotenv -e ../../.env -- prisma studio",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@mt/shared": "workspace:*",
+    "@prisma/client": "6.19.3",
+    "fastify": "^5.12.8",
+    "ioredis": "^5.10.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "dotenv-cli": "^11.0.0",
+    "prisma": "6.19.3",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.0"
+  }
+}

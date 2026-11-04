@@ -1,0 +1,37 @@
+# Postgres + Redis for ONE worktree.
+#
+# Parallel-safe by design:
+#   - no `container_name`: Docker prefixes containers, volumes and the network
+#     with COMPOSE_PROJECT_NAME (set per worktree in .env), so stacks never collide
+#   - host ports come from .env (PG_PORT / REDIS_PORT), offset per slot
+#
+# Run via the root scripts: `pnpm infra:up`, `pnpm infra:down`, `pnpm infra:reset`.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: mortgage
+    ports:
+      - "${PG_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d mortgage"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pg_data:
