@@ -49,4 +49,10 @@ REDIS_URL=redis://$DB_HOST:$REDIS_PORT
 VITE_API_URL=http://localhost:$API_PORT
 EOF
 
+# Inside a sandbox nobody can answer prompts (an OpenHands terminal still looks
+# like a TTY). CI=true makes Prisma & co. fail or use defaults instead of hanging.
+if [[ "$DB_HOST" == "host.docker.internal" ]]; then
+  printf '\n# Sandbox: never wait for interactive input.\nCI=true\n' >> .env
+fi
+
 echo "wrote .env (slot $SLOT, db host $DB_HOST): web :$WEB_PORT, api :$API_PORT, pg :$PG_PORT, redis :$REDIS_PORT"

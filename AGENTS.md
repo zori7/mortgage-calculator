@@ -9,6 +9,9 @@ Otherwise (or after a sandbox restart) run:
 ```bash
 bash scripts/setup.sh
 ```
+If `pnpm` or `node` is "not found" in your shell, run
+`export PATH="$HOME/.local/bin:$HOME/.local/node/bin:$PATH"` (setup installs them there).
+
 This installs the pinned Node and pnpm if missing, writes `.env` for this
 checkout's slot (from `.slot`), installs deps, migrates and seeds. Postgres and
 Redis **already run on the host** for your slot. Do not try to start them, do
@@ -31,7 +34,7 @@ can't reach the DB, stop and report it.
 - Do not add `container_name` or fixed host ports to `infra/compose.yml`.
 - Money is stored as integer cents in the DB and exposed as dollars everywhere else.
 - Validate every request body and query string with zod. A `ZodError` becomes a 400 automatically (see `app.ts`).
-- Schema changes go through `pnpm db:migrate` (Prisma creates the migration). Commit the migration folder.
+- Schema changes go through `pnpm db:migrate --name <snake_case_name>` (e.g. `--name add_notes`). **Always pass `--name`**: without it Prisma stops to ask for one. Commit the migration folder.
 - Keep the change scoped to the task. Do not reformat unrelated files.
 
 ## Commands (run from the repo root)
@@ -39,7 +42,7 @@ can't reach the DB, stop and report it.
 |--------------------|--------------------------------------------------------------|
 | `pnpm dev`         | Runs the API and web app with hot reload                     |
 | `pnpm check`       | Typecheck + all tests. **Must pass before you finish.**      |
-| `pnpm db:migrate`  | Creates and applies a migration after editing `schema.prisma` |
+| `pnpm db:migrate --name <name>` | Creates and applies a migration after editing `schema.prisma` |
 | `pnpm db:seed`     | Resets the scenarios to 3 sample rows                        |
 | `pnpm db:reset`    | Drops, re-migrates and re-seeds the dev DB                   |
 

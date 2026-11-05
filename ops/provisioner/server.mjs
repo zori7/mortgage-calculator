@@ -191,6 +191,7 @@ cat <<EOF
 === READY ===
 task      : $NAME   (branch task/$NAME, slot $SLOT)
 workdir   : $DIR
+shell     : export PATH="$HOME/.local/bin:$HOME/.local/node/bin:\\$PATH"   (run this first: pnpm lives there)
 next      : cd $DIR, read AGENTS.md there, do the task, commit.
 when done : cd $DIR && bash ../../deliver.sh
 EOF
