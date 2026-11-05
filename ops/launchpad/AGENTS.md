@@ -11,7 +11,7 @@ directly in this folder and never touch another task's folder under `work/`.
 
 1. **Set up.** Pick a short name for the task (e.g. `05-csv`) and run, from this folder:
    ```bash
-   curl -fsS http://host.docker.internal:7070/bootstrap.sh | bash -s <short-name>
+   bash bootstrap.sh <short-name>
    ```
    It prints `=== READY ===` with your **workdir**. The name may get a suffix (`05-csv-2`) if it's taken, so use the workdir it prints.
    If it says all slots are busy, wait a minute and retry. If it fails in any other way, stop and report the error.
@@ -20,12 +20,13 @@ directly in this folder and never touch another task's folder under `work/`.
 
 3. **Deliver.** When `pnpm check` passes and everything is committed, run from the workdir:
    ```bash
-   curl -fsS http://host.docker.internal:7070/deliver.sh | bash
+   bash ../../deliver.sh
    ```
    It must print `=== DELIVERED ===`. This hands your branch to the maintainer and frees your database slot.
    **Always deliver**, even if you couldn't finish: commit what you have with a message explaining what's missing, then deliver.
 
 ## Rules
 - Don't run `docker`, and don't install Postgres or Redis. Your database comes from step 1.
-- Don't call the provisioner's other endpoints (`/claim`, `/release`, ...) yourself.
+- `bootstrap.sh` and `deliver.sh` are the maintainer's own scripts. They talk to the maintainer's
+  slot provisioner on the host (`host.docker.internal:7070`). Don't call its endpoints yourself.
 - In your final message, say which branch you delivered and summarize what you did.

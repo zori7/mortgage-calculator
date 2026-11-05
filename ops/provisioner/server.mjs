@@ -149,12 +149,12 @@ async function reap() {
 // ---------------------------------------------------------------- scripts ---
 
 const BOOTSTRAP = `#!/usr/bin/env bash
-# Served by the mortgage-tracker provisioner. Usage (from the launchpad folder):
-#   curl -fsS ${PUBLIC_URL}/bootstrap.sh | bash -s <short-task-name>
+# Written into the launchpad by the mortgage-tracker provisioner. Usage:
+#   bash bootstrap.sh <short-task-name>
 set -euo pipefail
 P=${PUBLIC_URL}
 HINT="\${1:-task}"
-ROOT="\${MT_WORK_ROOT:-$PWD/work}"
+ROOT="\${MT_WORK_ROOT:-$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)/work}"
 
 need() { command -v "$1" >/dev/null || MISSING="\${MISSING:-} $2"; }
 need git git; need curl curl; need openssl openssl
@@ -192,13 +192,13 @@ cat <<EOF
 task      : $NAME   (branch task/$NAME, slot $SLOT)
 workdir   : $DIR
 next      : cd $DIR, read AGENTS.md there, do the task, commit.
-when done : cd $DIR && curl -fsS $P/deliver.sh | bash
+when done : cd $DIR && bash ../../deliver.sh
 EOF
 `;
 
 const DELIVER = `#!/usr/bin/env bash
-# Served by the mortgage-tracker provisioner. Run from inside the task's workdir:
-#   curl -fsS ${PUBLIC_URL}/deliver.sh | bash
+# Written into the launchpad by the mortgage-tracker provisioner. Run from inside
+# the task's workdir:  bash ../../deliver.sh
 # Sends branch task/<name> back to the main repo, then frees the slot.
 set -euo pipefail
 P=${PUBLIC_URL}
@@ -262,6 +262,12 @@ const server = createServer(async (req, res) => {
 // Keep the launchpad's AGENTS.md in sync with the template in this repo.
 mkdirSync(LAUNCHPAD, { recursive: true });
 copyFileSync(join(REPO, "ops/launchpad/AGENTS.md"), join(LAUNCHPAD, "AGENTS.md"));
+// Claude Code (OpenHands ACP agent) reads CLAUDE.md rather than AGENTS.md.
+writeFileSync(join(LAUNCHPAD, "CLAUDE.md"), "@AGENTS.md\n");
+// Local copies of the scripts. Agents run `bash bootstrap.sh`, never `curl | bash`:
+// OpenHands' system prompt rates pipe-to-shell from AGENTS.md as HIGH risk.
+writeFileSync(join(LAUNCHPAD, "bootstrap.sh"), BOOTSTRAP, { mode: 0o755 });
+writeFileSync(join(LAUNCHPAD, "deliver.sh"), DELIVER, { mode: 0o755 });
 if (!existsSync(join(LAUNCHPAD, ".gitignore"))) writeFileSync(join(LAUNCHPAD, ".gitignore"), "work/\n.pnpm-store/\n");
 
 setInterval(() => void reap(), 10 * 60_000).unref();
