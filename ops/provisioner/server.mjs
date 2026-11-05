@@ -9,6 +9,8 @@
 //   POST /claim     {name}        reserve a slot, start its Postgres+Redis → {slot, name, base}
 //   GET  /repo.bundle             the repo as a single git bundle (the "copy")
 //   GET  /deliver.sh              script the agent runs last: deliver + release
+//   GET  /instructions.md         agent instructions (ops/openhands/system_message_suffix.md),
+//                                 for agents that only trust their own memory file (Claude Code)
 //   POST /deliver?name=<n>        body = git bundle of task/<n> → fetched into the main repo
 //   POST /release   {slot}        stop that slot's containers, delete their data, free the slot
 //   GET  /slots                   current claims
@@ -232,6 +234,8 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === "GET" && url.pathname === "/bootstrap.sh") return res.end(BOOTSTRAP);
     if (req.method === "GET" && url.pathname === "/deliver.sh") return res.end(DELIVER);
+    if (req.method === "GET" && url.pathname === "/instructions.md")
+      return res.end(readFileSync(join(HERE, "../openhands/system_message_suffix.md")));
     if (req.method === "GET" && url.pathname === "/slots") return json(res, 200, loadState());
 
     if (req.method === "GET" && url.pathname === "/repo.bundle") {
