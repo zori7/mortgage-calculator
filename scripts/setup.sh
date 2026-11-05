@@ -28,7 +28,15 @@ fi
 # --- pnpm -------------------------------------------------------------------
 if ! command -v pnpm >/dev/null || [[ "$(pnpm -v)" != "$PNPM_VERSION" ]]; then
   echo "installing pnpm $PNPM_VERSION..."
-  npm install -g "pnpm@$PNPM_VERSION" >/dev/null
+  # OpenHands sandboxes run as a non-root user without sudo, so the global npm
+  # prefix (/usr/local) isn't writable there. Fall back to a user prefix.
+  if [[ -w "$(npm prefix -g)/lib" ]]; then
+    npm install -g "pnpm@$PNPM_VERSION" >/dev/null
+  else
+    npm install -g --prefix "$HOME/.local" "pnpm@$PNPM_VERSION" >/dev/null
+    export PATH="$HOME/.local/bin:$PATH"
+    grep -qs '.local/bin' "$HOME/.bashrc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+  fi
 fi
 
 # --- app --------------------------------------------------------------------
