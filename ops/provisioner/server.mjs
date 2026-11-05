@@ -71,7 +71,10 @@ function saveState(s) {
 
 const ports = (slot) => ({ PG_PORT: String(5432 + slot * 10), REDIS_PORT: String(6379 + slot * 10) });
 const compose = (slot, ...args) => run("docker", ["compose", "-p", `mt-s${slot}`, "-f", COMPOSE, ...args], { env: ports(slot) });
-const baseBranch = () => run("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
+// Agents always start from this branch (committed state), whatever you have
+// checked out on the host. Override with MT_BASE_BRANCH.
+const BASE_BRANCH = process.env.MT_BASE_BRANCH ?? "main";
+const baseBranch = async () => BASE_BRANCH;
 const branchExists = (b) => run("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${b}`]).then(() => true, () => false);
 
 async function readBody(req) {
@@ -156,8 +159,7 @@ async function deliver(name, body) {
         };
       }
     }
-    const main = (await run("git", ["rev-parse", "--verify", "-q", "main"]).then(() => "main", () => "")) || (await baseBranch());
-    const ahead = await run("git", ["rev-list", "--count", `${main}..${result.branch}`]);
+    const ahead = await run("git", ["rev-list", "--count", `${BASE_BRANCH}..${result.branch}`]);
     log(`deliver ${result.branch} (${result.mode}, ${ahead} commit(s) ahead of base)`);
     return { ...result, commitsAhead: Number(ahead) };
   } finally {
@@ -334,6 +336,6 @@ void reap();
 
 server.listen(PORT, HOST, () => {
   log(`provisioner on http://${HOST}:${PORT} (sandboxes: ${PUBLIC_URL})`);
-  log(`repo      ${REPO}`);
+  log(`repo      ${REPO} (agents start from ${BASE_BRANCH})`);
   log(`launchpad ${LAUNCHPAD}  ← use this folder as the OpenHands workspace`);
 });

@@ -68,7 +68,7 @@ either profile and prompt, for example:
 > Do task 5 from TASKS.md.
 
 Start as many conversations as you like (up to 9 at once). Agents only see
-**committed** code on your current branch, so commit before you trigger tasks.
+**committed** code on `main` (whatever you have checked out), so commit to main before you trigger tasks.
 
 ### Review results
 
