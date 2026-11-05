@@ -45,7 +45,7 @@ fi
 
 if $SWITCHED || changed apps/api/prisma; then
   if out="$(pnpm --silent db:deploy 2>&1)"; then
-    if grep -q "database .* created" <<<"$out"; then
+    if grep -qE "created database|database .* created" <<<"$out"; then
       say "created $AFTER → migrated, seeding"
       pnpm --silent db:seed >/dev/null 2>&1 || say "seed failed — run: pnpm db:seed"
     elif grep -q "have been applied" <<<"$out"; then
