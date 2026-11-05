@@ -7,6 +7,7 @@
     "start": "dotenv -e ../../.env -- tsx src/index.ts",
     "typecheck": "tsc -p .",
     "test": "dotenv -e ../../.env -- vitest run",
+    "db:generate": "prisma generate",
     "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
     "db:seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",

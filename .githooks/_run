@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Shared hook runner. This repo sets core.hooksPath=.githooks (via `pnpm install`),
+# which would otherwise hide your global hooks (git config --global core.hooksPath)
+# and .git/hooks. So every hook here runs the repo's own action, then chains to
+# those, keeping hooks like a global commit-msg working.
+name="$1"; shift
+root="$(git rev-parse --show-toplevel)"
+
+case "$name" in
+  post-checkout) [[ "${3:-0}" == "1" ]] && bash "$root/scripts/sync-after-checkout.sh" "$1" "$2" ;;
+  post-merge)    bash "$root/scripts/sync-after-checkout.sh" ORIG_HEAD HEAD ;;
+esac
+
+for dir in "$(git config --global core.hooksPath 2>/dev/null)" "$(git rev-parse --git-common-dir)/hooks"; do
+  dir="${dir/#\~/$HOME}"
+  [[ -n "$dir" && -x "$dir/$name" && "$(cd "$dir" && pwd)" != "$root/.githooks" ]] || continue
+  "$dir/$name" "$@" || exit $?
+done
+exit 0

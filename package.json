@@ -21,7 +21,8 @@
     "setup": "bash scripts/setup.sh",
     "prov": "node ops/provisioner/server.mjs",
     "prov:status": "curl -fsS localhost:7070/slots; echo",
-    "prov:release": "f(){ curl -fsS -X POST localhost:7070/release -d \"{\\\"slot\\\":$1}\"; echo; }; f"
+    "prov:release": "f(){ curl -fsS -X POST localhost:7070/release -d \"{\\\"slot\\\":$1}\"; echo; }; f",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "devDependencies": {
     "concurrently": "^10.0.6",
