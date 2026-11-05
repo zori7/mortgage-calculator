@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "dev": "tsx watch --clear-screen=false --env-file=../../.env --include ../../.env src/index.ts",
     "start": "dotenv -e ../../.env -- tsx src/index.ts",
     "typecheck": "tsc -p .",
     "test": "dotenv -e ../../.env -- vitest run",
