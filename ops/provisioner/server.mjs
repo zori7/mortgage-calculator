@@ -165,25 +165,51 @@ if [[ -n "\${MISSING:-}" ]]; then
   $SUDO apt-get update -qq >/dev/null && $SUDO apt-get install -y -qq $MISSING ca-certificates >/dev/null
 fi
 
-CLAIM=$(curl -fsS -X POST "$P/claim" -H 'content-type: application/json' -d "{\\"name\\":\\"$HINT\\"}")
-SLOT=$(echo "$CLAIM" | sed -E 's/.*"slot":([0-9]+).*/\\1/')
-NAME=$(echo "$CLAIM" | sed -E 's/.*"name":"([^"]+)".*/\\1/')
-BASE=$(echo "$CLAIM" | sed -E 's/.*"base":"([^"]+)".*/\\1/')
-DIR="$ROOT/$NAME"
+claim() {
+  CLAIM=$(curl -fsS -X POST "$P/claim" -H 'content-type: application/json' -d "{\\"name\\":\\"$1\\"}")
+  SLOT=$(echo "$CLAIM" | sed -E 's/.*"slot":([0-9]+).*/\\1/')
+  NAME=$(echo "$CLAIM" | sed -E 's/.*"name":"([^"]+)".*/\\1/')
+  BASE=$(echo "$CLAIM" | sed -E 's/.*"base":"([^"]+)".*/\\1/')
+}
+release_on_error() {
+  trap 'echo "bootstrap failed; releasing slot $SLOT" >&2; curl -fsS -X POST "$P/release" -d "{\\"slot\\":$SLOT}" >/dev/null || true' ERR
+}
 
-# From here on, give the slot back if anything fails.
-trap 'echo "bootstrap failed; releasing slot $SLOT" >&2; curl -fsS -X POST "$P/release" -d "{\\"slot\\":$SLOT}" >/dev/null || true' ERR
+echo "Setting up (takes 1-3 minutes). If your terminal returns before '=== READY ===',"
+echo "the setup is still running: wait and check again. Running this again is safe: it resumes."
 
-mkdir -p "$ROOT"
-curl -fsS "$P/repo.bundle" -o "/tmp/mt-$NAME.bundle"
-git clone --quiet --branch "$BASE" "/tmp/mt-$NAME.bundle" "$DIR"
-cd "$DIR"
-git remote remove origin
-git switch --quiet -c "task/$NAME"
-git config user.name  "\${GIT_AUTHOR_NAME:-OpenHands agent}"
-git config user.email "\${GIT_AUTHOR_EMAIL:-openhands@localhost}"
-git config --global --add safe.directory "$DIR" || true
-echo "$SLOT" > .slot
+if [[ -d "$ROOT/$HINT/.git" ]]; then
+  # Resume: this task was bootstrapped before (interrupted, or the command was
+  # re-run). Keep the checkout; make sure its slot is still ours, re-claim if not.
+  NAME="$HINT"; DIR="$ROOT/$NAME"
+  SLOT=$(cat "$DIR/.slot" 2>/dev/null || echo none)
+  if ! curl -fsS "$P/slots" | grep -q "\\"$SLOT\\":{\\"name\\":\\"$NAME\\""; then
+    claim "$NAME"
+    if [[ "$NAME" != "$HINT" ]]; then
+      curl -fsS -X POST "$P/release" -d "{\\"slot\\":$SLOT}" >/dev/null || true
+      echo "can't resume '$HINT' (name is in use or already delivered); pick a new name" >&2; exit 1
+    fi
+    echo "$SLOT" > "$DIR/.slot"
+    release_on_error
+  fi
+  echo "resuming $NAME in slot $SLOT"
+  cd "$DIR"
+else
+  claim "$HINT"
+  DIR="$ROOT/$NAME"
+  # From here on, give the slot back if anything fails.
+  release_on_error
+  mkdir -p "$ROOT"
+  curl -fsS "$P/repo.bundle" -o "/tmp/mt-$NAME.bundle"
+  git clone --quiet --branch "$BASE" "/tmp/mt-$NAME.bundle" "$DIR"
+  cd "$DIR"
+  git remote remove origin
+  git switch --quiet -c "task/$NAME"
+  git config user.name  "\${GIT_AUTHOR_NAME:-OpenHands agent}"
+  git config user.email "\${GIT_AUTHOR_EMAIL:-openhands@localhost}"
+  git config --global --add safe.directory "$DIR" || true
+  echo "$SLOT" > .slot
+fi
 
 bash scripts/setup.sh
 trap - ERR
