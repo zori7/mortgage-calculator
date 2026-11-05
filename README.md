@@ -72,9 +72,16 @@ Start as many conversations as you like (up to 9 at once). Agents only see
 
 ### Review results
 
+Every delivery is checked again on the host, independently of what the agent
+says: a throwaway worktree of the delivered commit, its own slot (fresh Postgres
+and Redis, migrated from scratch), `pnpm check`. One at a time, a few minutes each.
+
 ```bash
-git branch --list 'task/*'
-git log -p HEAD..task/05-csv
+pnpm prov:verify                       # ✅/❌ per delivered branch, with the log of failures
+git log --notes=verify -1 task/05-csv  # the result is also a git note on the commit
+pnpm prov:reverify task/05-csv         # run the check again
+
+git log -p main..task/05-csv
 git merge task/05-csv
 ```
 
@@ -84,9 +91,15 @@ git merge task/05-csv
 |-------------------------|-------------------------------------------------------|
 | `pnpm prov:status`      | Show claimed slots                                    |
 | `pnpm prov:release 3`   | Force-free slot 3 (stops its DB, deletes its data)    |
+| `pnpm sandbox:gc`       | List leftovers: slots whose conversation is gone, exited agent containers, conversation data without a conversation, stale git refs, databases of deleted branches |
+| `pnpm sandbox:gc --apply` | Remove them                                         |
+| `pnpm services:install` | Run the provisioner, OpenHands and an hourly `sandbox:gc --apply` as background services (launchd): start at login, restart on crash, keep the Mac from idle-sleeping |
+| `pnpm services:status` / `services:logs` / `services:uninstall` | Manage them |
 
 Slots that are never delivered are released automatically after 4h (`MT_MAX_AGE_HOURS`).
-Agents' working copies stay in `~/Playground/mt-launchpad/work/` for inspection, and are safe to delete.
+With the services installed, don't also run `pnpm factory` (same ports). Docker
+Desktop must be set to start at login. Deleting a conversation in OpenHands deletes
+the agent's checkout, so deliver first.
 
 ### Slots
 

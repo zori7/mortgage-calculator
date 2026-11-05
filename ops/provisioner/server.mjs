@@ -14,6 +14,8 @@
 //   POST /deliver?name=<n>        body = git bundle of task/<n> → fetched into the main repo
 //   POST /release   {slot}        stop that slot's containers, delete their data, free the slot
 //   GET  /slots                   current claims
+//   GET  /verify[.txt]            results of the independent check of each delivery
+//   POST /verify?branch=task/<n>  re-run that check
 //
 // The databases come from the same infra/compose.yml you use for manual dev
 // (compose project mt-s<slot>, ports from the slot), so there is one definition.
@@ -43,14 +45,15 @@ const PUBLIC_URL = `http://host.docker.internal:${PORT}`;
 
 // ---------------------------------------------------------------- helpers ---
 
-function run(cmd, args, { env, input } = {}) {
+function run(cmd, args, { env, input, cwd = REPO, timeout } = {}) {
   return new Promise((ok, fail) => {
-    const p = spawn(cmd, args, { cwd: REPO, env: { ...process.env, ...env } });
+    const p = spawn(cmd, args, { cwd, env: { ...process.env, ...env }, timeout, killSignal: "SIGKILL" });
     let out = "", err = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (err += d));
     p.on("error", fail);
-    p.on("close", (code) => (code === 0 ? ok(out.trim()) : fail(new Error(`${cmd} ${args.join(" ")}: ${err.trim() || out.trim()}`))));
+    p.on("close", (code, signal) => (code === 0 ? ok(out.trim()) : fail(Object.assign(
+      new Error(`${cmd} ${args.join(" ")}: ${signal ? `killed (${signal}, timeout?)` : err.trim() || out.trim()}`), { out, err }))));
     if (input) p.stdin.end(input);
   });
 }
@@ -161,10 +164,112 @@ async function deliver(name, body) {
     }
     const ahead = await run("git", ["rev-list", "--count", `${BASE_BRANCH}..${result.branch}`]);
     log(`deliver ${result.branch} (${result.mode}, ${ahead} commit(s) ahead of base)`);
-    return { ...result, commitsAhead: Number(ahead) };
+    queueVerify(result.branch, await run("git", ["rev-parse", incoming]));
+    return { ...result, commitsAhead: Number(ahead), verify: "queued: the host re-runs pnpm check on a fresh database (GET /verify)" };
   } finally {
     rmSync(file, { force: true });
   }
+}
+
+// ---------------------------------------------------------------- verify ---
+// Every delivery is checked again on the host, independently of what the agent
+// says: a throwaway worktree of the delivered commit, its own slot (fresh
+// Postgres + Redis, migrated from scratch), `pnpm check`. One at a time.
+// Results: GET /verify, `git log --notes=verify <branch>`, logs in STATE_DIR/verify/.
+const VERIFY_DIR = join(STATE_DIR, "verify");
+const VERIFY_FILE = join(VERIFY_DIR, "results.json");
+const STEP_TIMEOUT = 15 * 60_000;
+const verifyJobs = [];
+let verifying = false;
+
+const loadVerify = () => { try { return JSON.parse(readFileSync(VERIFY_FILE, "utf8")); } catch { return {}; } };
+function setVerify(branch, patch) {
+  mkdirSync(VERIFY_DIR, { recursive: true });
+  const all = loadVerify();
+  all[branch] = { ...all[branch], ...patch, branch };
+  writeFileSync(VERIFY_FILE, JSON.stringify(all, null, 2));
+}
+
+function queueVerify(branch, sha) {
+  setVerify(branch, { sha, status: "queued", queuedAt: new Date().toISOString(), step: null, finishedAt: null });
+  verifyJobs.push({ branch, sha });
+  void pumpVerify();
+}
+
+async function pumpVerify() {
+  if (verifying) return;
+  verifying = true;
+  while (verifyJobs.length) {
+    const job = verifyJobs.shift();
+    await verifyOne(job).catch((e) => {
+      setVerify(job.branch, { status: "error", error: e.message, finishedAt: new Date().toISOString() });
+      log(`verify ${job.branch}: error ${e.message}`);
+    });
+  }
+  verifying = false;
+}
+
+async function verifyOne({ branch, sha }) {
+  const slug = branch.replace(/^task\//, "").replace(/[^a-z0-9-]+/g, "-");
+  let c;
+  for (let i = 0; ; i++) {
+    try { c = await claim(`verify-${slug}`); break; } catch (e) {
+      if (e.status !== 503 || i >= 60) throw e;
+      setVerify(branch, { status: "waiting for a free slot" });
+      await new Promise((r) => setTimeout(r, 60_000));
+    }
+  }
+  const dir = join(VERIFY_DIR, "work", c.name);
+  const logFile = join(VERIFY_DIR, `${slug}.log`);
+  writeFileSync(logFile, `verify ${branch} @ ${sha} in slot ${c.slot}\n`);
+  setVerify(branch, { status: "running", startedAt: new Date().toISOString(), log: logFile });
+  log(`verify ${branch} @ ${sha.slice(0, 7)} in slot ${c.slot}`);
+
+  let failed = null;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+    await run("git", ["worktree", "prune"]);
+    await run("git", ["-c", "core.hooksPath=/dev/null", "worktree", "add", "--force", "--detach", dir, sha]);
+    writeFileSync(join(dir, ".slot"), String(c.slot));
+    writeFileSync(join(dir, ".env"), ""); // older branches' db-name.sh needs one in a detached checkout
+    const env = { CI: "true", DB_HOST: "localhost" };
+    const steps = [
+      ["env", "bash", ["scripts/dev-env.sh"]],
+      ["install", "pnpm", ["install", "--frozen-lockfile", "--prefer-offline"]],
+      ["migrate", "pnpm", ["db:deploy"]],
+      ["check", "pnpm", ["check"]],
+    ];
+    for (const [step, cmd, args] of steps) {
+      setVerify(branch, { step });
+      try {
+        const out = await run(cmd, args, { cwd: dir, env, timeout: STEP_TIMEOUT });
+        appendLog(logFile, `\n$ ${cmd} ${args.join(" ")}\n${out}\n`);
+      } catch (e) {
+        appendLog(logFile, `\n$ ${cmd} ${args.join(" ")}\n${e.out ?? ""}${e.err ?? ""}\nFAILED: ${e.message.split("\n")[0]}\n`);
+        failed = step;
+        break;
+      }
+    }
+  } finally {
+    await release(c.slot).catch(() => {});
+    await run("git", ["worktree", "remove", "--force", dir]).catch(() => rmSync(dir, { recursive: true, force: true }));
+  }
+
+  const status = failed ? "fail" : "pass";
+  const finishedAt = new Date().toISOString();
+  setVerify(branch, { status, step: failed, finishedAt });
+  const note = `${status.toUpperCase()}${failed ? ` (failed at: ${failed})` : ""}: pnpm check on a fresh DB, ${finishedAt}\nlog: ${logFile}`;
+  await run("git", ["notes", "--ref=verify", "add", "-f", "-m", note, sha]).catch(() => {});
+  log(`verify ${branch}: ${status.toUpperCase()}${failed ? ` at ${failed}` : ""}`);
+}
+
+const appendLog = (file, text) => writeFileSync(file, text, { flag: "a" });
+
+function verifyTable() {
+  const rows = Object.values(loadVerify()).sort((a, b) => (b.queuedAt ?? "").localeCompare(a.queuedAt ?? ""));
+  if (!rows.length) return "no deliveries checked yet\n";
+  const icon = { pass: "✅", fail: "❌", error: "⚠️ ", running: "⏳", queued: "⏳" };
+  return rows.map((r) => `${icon[r.status] ?? "⏳"} ${r.status.padEnd(8)} ${r.branch.padEnd(36)} ${(r.sha ?? "").slice(0, 7)}  ${r.step ? `step: ${r.step}  ` : ""}${r.finishedAt ?? r.queuedAt ?? ""}${r.status === "fail" || r.status === "error" ? `\n    log: ${r.log ?? "-"}${r.error ? `\n    ${r.error}` : ""}` : ""}`).join("\n") + "\n";
 }
 
 async function reap() {
@@ -293,6 +398,16 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/instructions.md")
       return res.end(readFileSync(join(HERE, "../openhands/agent-instructions.md")));
     if (req.method === "GET" && url.pathname === "/slots") return json(res, 200, loadState());
+    if (req.method === "GET" && url.pathname === "/verify") return json(res, 200, loadVerify());
+    if (req.method === "GET" && url.pathname === "/verify.txt") return res.end(verifyTable());
+    if (req.method === "POST" && url.pathname === "/verify") {
+      const branch = url.searchParams.get("branch") ?? "";
+      if (!/^task\/[a-z0-9-]+$/.test(branch)) throw Object.assign(new Error("branch=task/<name> required"), { status: 400 });
+      const sha = await run("git", ["rev-parse", "--verify", `refs/heads/${branch}`]).catch(() => null);
+      if (!sha) throw Object.assign(new Error(`no branch ${branch}`), { status: 404 });
+      queueVerify(branch, sha);
+      return json(res, 202, { queued: branch, sha });
+    }
 
     if (req.method === "GET" && url.pathname === "/repo.bundle") {
       const base = await baseBranch();
@@ -330,6 +445,12 @@ writeFileSync(join(LAUNCHPAD, "CLAUDE.md"), "@AGENTS.md\n");
 writeFileSync(join(LAUNCHPAD, "bootstrap.sh"), BOOTSTRAP, { mode: 0o755 });
 writeFileSync(join(LAUNCHPAD, "deliver.sh"), DELIVER, { mode: 0o755 });
 if (!existsSync(join(LAUNCHPAD, ".gitignore"))) writeFileSync(join(LAUNCHPAD, ".gitignore"), "work/\n.pnpm-store/\n");
+
+// Verification slots are the provisioner's own: after a restart nothing uses them.
+for (const [slot, c] of Object.entries(loadState()))
+  if (c.name.startsWith("verify-")) void release(slot);
+for (const r of Object.values(loadVerify()))
+  if (!["pass", "fail", "error"].includes(r.status)) setVerify(r.branch, { status: "error", error: "interrupted (provisioner restarted); POST /verify to re-run" });
 
 setInterval(() => void reap(), 10 * 60_000).unref();
 void reap();
