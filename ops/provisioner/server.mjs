@@ -128,10 +128,38 @@ async function deliver(name, body) {
   writeFileSync(file, body);
   try {
     await run("git", ["bundle", "verify", file]);
-    await run("git", ["fetch", "--quiet", file, `+task/${name}:task/${name}`]);
-    const ahead = await run("git", ["rev-list", "--count", `HEAD..task/${name}`]);
-    log(`deliver task/${name} (${ahead} commit(s) ahead of HEAD)`);
-    return { branch: `task/${name}`, commitsAhead: Number(ahead) };
+    // Land in a hidden ref first: fetching straight into task/<name> fails when you
+    // have that branch checked out on the host.
+    const incoming = `refs/delivered/${name}`;
+    const branch = `task/${name}`;
+    await run("git", ["fetch", "--quiet", file, `+${branch}:${incoming}`]);
+    const current = await run("git", ["symbolic-ref", "--short", "-q", "HEAD"]).catch(() => "");
+
+    let result;
+    if (current !== branch) {
+      await run("git", ["update-ref", `refs/heads/${branch}`, incoming]);
+      result = { branch, mode: "updated" };
+    } else {
+      // Checked out on the host. Fast-forward your working tree when that is safe
+      // (no local edits, no local commits the delivery lacks), else park it aside.
+      const clean = (await run("git", ["status", "--porcelain", "--untracked-files=no"])) === "";
+      const ff = await run("git", ["merge-base", "--is-ancestor", "HEAD", incoming]).then(() => true, () => false);
+      if (clean && ff) {
+        await run("git", ["merge", "--ff-only", "--quiet", incoming]);
+        result = { branch, mode: "fast-forwarded your checkout" };
+      } else {
+        const aside = `${branch}-delivered`;
+        await run("git", ["update-ref", `refs/heads/${aside}`, incoming]);
+        result = {
+          branch: aside, mode: "parked",
+          note: `${branch} is checked out on the host with ${clean ? "commits the delivery doesn't have" : "uncommitted changes"}; delivered as ${aside} instead`,
+        };
+      }
+    }
+    const main = (await run("git", ["rev-parse", "--verify", "-q", "main"]).then(() => "main", () => "")) || (await baseBranch());
+    const ahead = await run("git", ["rev-list", "--count", `${main}..${result.branch}`]);
+    log(`deliver ${result.branch} (${result.mode}, ${ahead} commit(s) ahead of base)`);
+    return { ...result, commitsAhead: Number(ahead) };
   } finally {
     rmSync(file, { force: true });
   }
@@ -245,7 +273,7 @@ fi
 git bundle create "/tmp/out-$NAME.bundle" "$BRANCH" 2>/dev/null
 curl -fsS -X POST --data-binary @"/tmp/out-$NAME.bundle" "$P/deliver?name=$NAME"; echo
 curl -fsS -X POST "$P/release" -H 'content-type: application/json' -d "{\\"slot\\":$SLOT}"; echo
-echo "=== DELIVERED: branch $BRANCH is in the main repo; slot $SLOT freed. ==="
+echo "=== DELIVERED (see the branch name above); slot $SLOT freed. ==="
 `;
 
 // ---------------------------------------------------------------- server ---
