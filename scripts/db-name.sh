@@ -16,7 +16,7 @@ BASE=mortgage
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)}"
 
 if [[ "$BRANCH" == "HEAD" ]]; then
-  current="$(sed -nE 's|^DATABASE_URL=.*/([^/?]+).*|\1|p' .env 2>/dev/null)"
+  current="$(sed -nE 's|^DATABASE_URL=.*/([^/?]+).*|\1|p' .env 2>/dev/null || true)"   # no .env yet → main DB
   echo "${current:-$BASE}"
   exit 0
 fi
