@@ -50,15 +50,17 @@ agent: curl host.docker.internal:7070/deliver.sh | bash
 ### Run the two host services
 
 ```bash
-# 1. Slot provisioner (agents' only way to get a DB; they never get Docker access)
-pnpm prov
+pnpm factory     # both at once, in one terminal (Ctrl-C stops both)
 
-# 2. OpenHands, one container per conversation
-OH_CONVERSATION_RUNTIME=docker npx @openhands/agent-canvas@1.35.0
+# or separately:
+pnpm prov        # 1. slot provisioner (agents' only way to get a DB; they never get Docker access)
+pnpm oh          # 2. OpenHands Agent Canvas, one container per conversation
 ```
 
-In OpenHands (http://localhost:8000): set your LLM under **Settings → LLM**, then
-**Open Workspace** → `~/Playground/mt-launchpad` and prompt, for example:
+In OpenHands (http://localhost:8000): set your LLM under **Settings → LLM**. The
+`default` agent profile already tells the agent how to bootstrap
+(`node ops/openhands/apply-profile.mjs` sets it), so just start a conversation
+and prompt, for example:
 
 > Do task 5 from TASKS.md.
 
