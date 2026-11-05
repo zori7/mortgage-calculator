@@ -10,7 +10,7 @@
 // as <UNTRUSTED_CONTENT>, and Claude (rightly) refuses to curl+run scripts on that
 // basis. Claude Code trusts its own ~/.claude/CLAUDE.md, so the profile's start
 // command fetches the instructions from the provisioner (GET /instructions.md, which
-// serves system_message_suffix.md) into that file, then starts the ACP server.
+// serves agent-instructions.md) into that file, then starts the ACP server.
 //
 // The Claude token comes from the global secret CLAUDE_CODE_OAUTH_TOKEN
 // (set it once in any Claude profile's Credentials, from `claude setup-token`).
@@ -27,7 +27,7 @@ const headers = { "X-Session-API-Key": key, "content-type": "application/json" }
 const ACP = "@agentclientprotocol/claude-agent-acp@0.63.0";
 
 // 1. Global skill (always-on for OpenHands-kind agents; context for ACP ones).
-const instructions = readFileSync(join(here, "system_message_suffix.md"), "utf8");
+const instructions = readFileSync(join(here, "agent-instructions.md"), "utf8");
 mkdirSync(join(homedir(), ".openhands/skills"), { recursive: true });
 writeFileSync(
   join(homedir(), ".openhands/skills/mortgage-tracker-bootstrap.md"),

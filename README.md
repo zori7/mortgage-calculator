@@ -57,10 +57,13 @@ pnpm prov        # 1. slot provisioner (agents' only way to get a DB; they never
 pnpm oh          # 2. OpenHands Agent Canvas, one container per conversation
 ```
 
-In OpenHands (http://localhost:8000): set your LLM under **Settings → LLM**. The
-`default` agent profile already tells the agent how to bootstrap
-(`node ops/openhands/apply-profile.mjs` sets it), so just start a conversation
-and prompt, for example:
+In OpenHands (http://localhost:8000): set your LLM under **Settings → LLM**. Run
+`node ops/openhands/apply-claude-profile.mjs` once: it installs the bootstrap
+instructions (`ops/openhands/agent-instructions.md`) as a global OpenHands skill,
+which every OpenHands agent gets, and creates the `claude-opusplan` profile
+(Claude Code gets the same file as its own `~/.claude/CLAUDE.md`, because it
+treats OpenHands skills as untrusted). Then just start a conversation with
+either profile and prompt, for example:
 
 > Do task 5 from TASKS.md.
 
