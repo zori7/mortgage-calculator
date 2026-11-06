@@ -110,6 +110,22 @@ export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots, re
     if (!r.ok) throw Object.assign(new Error(`OpenHands ${init.method ?? "GET"} ${path}: ${r.status} ${(await r.text()).slice(0, 300)}`), { status: r.status });
     return r.json();
   }
+  // OpenHands only adds your global secrets (e.g. CLAUDE_CODE_OAUTH_TOKEN for Claude Code)
+  // to conversations started from its web UI, which sends them along. API-created ones get
+  // none, so do the same: read them from the local server and pass them in. Never logged.
+  async function globalSecrets(profileId) {
+    const { secrets = [] } = await oh(`/api/settings/secrets?agent_profile_id=${profileId}`);
+    const out = {};
+    for (const { name, description } of secrets) {
+      const r = await fetch(`${OH}/api/settings/secrets/${encodeURIComponent(name)}`, {
+        headers: { "X-Session-API-Key": ohKey() }, signal: AbortSignal.timeout(30_000),
+      });
+      if (r.ok) out[name] = { kind: "StaticSecret", value: await r.text(), description: description ?? null };
+      else log(`issues: couldn't read OpenHands secret ${name}: ${r.status}`);
+    }
+    return out;
+  }
+
   async function startConversation(issue, name) {
     const { profiles } = await oh("/api/agent-profiles");
     const profile = profiles.find((p) => p.name === PROFILE);
@@ -119,6 +135,7 @@ export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots, re
       body: JSON.stringify({
         workspace: { working_dir: "/workspace" },
         agent_profile_id: profile.id,
+        secrets: await globalSecrets(profile.id),
         tags: { source: "github", issue: String(issue.number) },
         autotitle: false,
         initial_message: { role: "user", content: [{ type: "text", text: prompt(issue, name) }], run: true },
