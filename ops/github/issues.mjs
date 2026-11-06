@@ -41,9 +41,12 @@ const MAX_RUNNING = Number(process.env.MT_GH_MAX_RUNNING ?? 3);
 const POLL_MS = Number(process.env.MT_GH_POLL_SECONDS ?? 60) * 1000;
 const OPEN_PR = process.env.MT_GH_OPEN_PR !== "0";
 const OH = process.env.OH_URL ?? "http://localhost:8000";
-// An agent that stops without delivering gets this long before the issue is marked failed
-// (ACP agents can report "finished" a moment before their deliver call lands).
+// An agent that finishes without delivering gets this long before the issue is marked failed
+// (ACP agents can report "finished" a moment before their deliver call lands). Errors fail at once.
 const GRACE_MS = 3 * 60_000;
+// After an auth error, every new conversation would fail the same way: stop picking up issues
+// for a while instead of burning through the queue.
+const AUTH_PAUSE_MS = 15 * 60_000;
 const ACTIVE = new Set(["starting", "running", "delivered", "verifying"]);
 
 /** task/gh-12-foo, task/gh-12-foo-2, task/gh-12-foo-delivered → 12 */
@@ -75,7 +78,7 @@ ${issue.body?.trim() || "(no description)"}
 </issue>`;
 }
 
-export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots }) {
+export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots, release }) {
   if (process.env.MT_GH_ISSUES === "0") return null;
   const FILE = join(stateDir, "issues.json");
   const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return {}; } };
@@ -138,7 +141,9 @@ export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots }) 
   }
 
   const skipped = new Set();
+  let pausedUntil = 0;
   async function poll() {
+    if (Date.now() < pausedUntil) return;
     const issues = JSON.parse(await gh("issue", "list", "-R", repo, "--state", "open", "--label", L.todo,
       "--json", "number,title,body,author,url", "--limit", "50"));
     const state = load();
@@ -179,16 +184,35 @@ export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots }) 
         if (e.status === 404) await fail(s.number, "its OpenHands conversation was deleted before it delivered.");
         continue;
       }
-      if (!["finished", "error", "stuck"].includes(c.execution_status)) { s.stoppedAt && set(s.number, { stoppedAt: null }); continue; }
+      const st = c.execution_status;
+      if (st === "error" || st === "stuck") {
+        const err = await lastError(s.conversationId);
+        let reason = `the agent ${st === "stuck" ? "got stuck" : "hit an error"} before delivering`;
+        if (err?.classification?.kind === "auth") {
+          pausedUntil = Date.now() + AUTH_PAUSE_MS;
+          log(`issues: agent auth failed (${err.code}); not picking up new issues for ${AUTH_PAUSE_MS / 60_000} min`);
+          reason = `the agent couldn't authenticate (\`${err.code}\`). Fix the agent's login in OpenHands (for Claude: the \`CLAUDE_CODE_OAUTH_TOKEN\` secret, from \`claude setup-token\`). New issues are paused for ${AUTH_PAUSE_MS / 60_000} min`;
+        } else if (err) reason += `: \`${err.code}\` ${err.detail ?? ""}`.trimEnd();
+        await fail(s.number, `${reason}.`);
+        continue;
+      }
+      if (st !== "finished") { s.stoppedAt && set(s.number, { stoppedAt: null }); continue; }
       if (!s.stoppedAt) { set(s.number, { stoppedAt: new Date().toISOString() }); continue; }
       if (Date.now() - Date.parse(s.stoppedAt) < GRACE_MS) continue;
       const said = await finalResponse(s.conversationId);
-      await fail(s.number, `the agent stopped (${c.execution_status}) without delivering.${said ? `\n\nIts last message:\n\n${quote(said)}` : ""}`);
+      await fail(s.number, `the agent finished without delivering.${said ? `\n\nIts last message:\n\n${quote(said)}` : ""}`);
     }
   }
 
+  const lastError = (id) => oh(`/api/conversations/${id}/events/search?kind=ConversationErrorEvent&sort_order=TIMESTAMP_DESC&limit=1`)
+    .then((r) => r.items?.[0] ?? null, () => null);
+
   async function fail(n, reason) {
-    set(n, { status: "failed", reason, finishedAt: new Date().toISOString() });
+    const s = set(n, { status: "failed", reason, finishedAt: new Date().toISOString() });
+    // Free the slot the agent claimed (if it got that far); its branch was never delivered.
+    if (s.status === "failed" && s.name && !s.branch)
+      for (const [slot, c] of Object.entries(slots()))
+        if (c.name === s.name || c.name.startsWith(`${s.name}-`)) await release(slot).catch(() => {});
     log(`issues #${n}: failed: ${reason.split("\n")[0]}`);
     await relabel(n, L.failed, L.running, L.todo);
     await comment(n, `❌ ${reason[0].toUpperCase()}${reason.slice(1)}\n\nAdd the \`${L.todo}\` label again to retry.`);

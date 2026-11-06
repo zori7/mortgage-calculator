@@ -461,7 +461,7 @@ for (const r of Object.values(loadVerify()))
 setInterval(() => void reap(), 10 * 60_000).unref();
 
 // GitHub issues labelled `factory` become agent conversations (MT_GH_ISSUES=0 to turn off).
-const issues = startIssues({ run, log, stateDir: STATE_DIR, repoDir: REPO, baseBranch: BASE_BRANCH, slots: loadState });
+const issues = startIssues({ run, log, stateDir: STATE_DIR, repoDir: REPO, baseBranch: BASE_BRANCH, slots: loadState, release });
 void reap();
 
 server.listen(PORT, HOST, () => {
