@@ -24,6 +24,7 @@
     "factory": "concurrently -n prov,oh -c blue,magenta \"pnpm prov\" \"pnpm oh\"",
     "prov:status": "curl -fsS localhost:7070/slots; echo",
     "prov:verify": "curl -fsS localhost:7070/verify.txt",
+    "prov:issues": "curl -fsS localhost:7070/issues; echo",
     "sandbox:gc": "node ops/gc.mjs",
     "services:install": "bash ops/launchd/install.sh",
     "services:uninstall": "bash ops/launchd/uninstall.sh",

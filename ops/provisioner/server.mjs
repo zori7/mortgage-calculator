@@ -16,6 +16,7 @@
 //   GET  /slots                   current claims
 //   GET  /verify[.txt]            results of the independent check of each delivery
 //   POST /verify?branch=task/<n>  re-run that check
+//   GET  /issues                  GitHub issues handed to agents (see ops/github/issues.mjs)
 //
 // The databases come from the same infra/compose.yml you use for manual dev
 // (compose project mt-s<slot>, ports from the slot), so there is one definition.
@@ -30,6 +31,7 @@ import { mkdirSync, readFileSync, writeFileSync, copyFileSync, createWriteStream
 import { tmpdir, homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startIssues } from "../github/issues.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(process.env.MT_REPO ?? join(HERE, "../.."));
@@ -165,6 +167,7 @@ async function deliver(name, body) {
     const ahead = await run("git", ["rev-list", "--count", `${BASE_BRANCH}..${result.branch}`]);
     log(`deliver ${result.branch} (${result.mode}, ${ahead} commit(s) ahead of base)`);
     queueVerify(result.branch, await run("git", ["rev-parse", incoming]));
+    issues?.delivered({ branch: result.branch, commitsAhead: Number(ahead) });
     return { ...result, commitsAhead: Number(ahead), verify: "queued: the host re-runs pnpm check on a fresh database (GET /verify)" };
   } finally {
     rmSync(file, { force: true });
@@ -203,6 +206,7 @@ async function pumpVerify() {
     const job = verifyJobs.shift();
     await verifyOne(job).catch((e) => {
       setVerify(job.branch, { status: "error", error: e.message, finishedAt: new Date().toISOString() });
+      issues?.verified({ branch: job.branch, sha: job.sha, status: "error", step: null, logFile: null });
       log(`verify ${job.branch}: error ${e.message}`);
     });
   }
@@ -261,6 +265,7 @@ async function verifyOne({ branch, sha }) {
   const note = `${status.toUpperCase()}${failed ? ` (failed at: ${failed})` : ""}: pnpm check on a fresh DB, ${finishedAt}\nlog: ${logFile}`;
   await run("git", ["notes", "--ref=verify", "add", "-f", "-m", note, sha]).catch(() => {});
   log(`verify ${branch}: ${status.toUpperCase()}${failed ? ` at ${failed}` : ""}`);
+  issues?.verified({ branch, sha, status, step: failed, logFile });
 }
 
 const appendLog = (file, text) => writeFileSync(file, text, { flag: "a" });
@@ -400,6 +405,7 @@ const server = createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/slots") return json(res, 200, loadState());
     if (req.method === "GET" && url.pathname === "/verify") return json(res, 200, loadVerify());
     if (req.method === "GET" && url.pathname === "/verify.txt") return res.end(verifyTable());
+    if (req.method === "GET" && url.pathname === "/issues") return json(res, 200, issues?.status() ?? { disabled: true });
     if (req.method === "POST" && url.pathname === "/verify") {
       const branch = url.searchParams.get("branch") ?? "";
       if (!/^task\/[a-z0-9-]+$/.test(branch)) throw Object.assign(new Error("branch=task/<name> required"), { status: 400 });
@@ -453,6 +459,9 @@ for (const r of Object.values(loadVerify()))
   if (!["pass", "fail", "error"].includes(r.status)) setVerify(r.branch, { status: "error", error: "interrupted (provisioner restarted); POST /verify to re-run" });
 
 setInterval(() => void reap(), 10 * 60_000).unref();
+
+// GitHub issues labelled `factory` become agent conversations (MT_GH_ISSUES=0 to turn off).
+const issues = startIssues({ run, log, stateDir: STATE_DIR, repoDir: REPO, baseBranch: BASE_BRANCH, slots: loadState });
 void reap();
 
 server.listen(PORT, HOST, () => {

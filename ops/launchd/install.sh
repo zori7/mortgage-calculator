@@ -26,7 +26,7 @@ mkdir -p "$AGENTS" "$LOGS"
 
 NODE="$(command -v node)" || { echo "node not found in PATH" >&2; exit 1; }
 dirs=("$(dirname "$NODE")")
-for tool in pnpm docker git curl; do
+for tool in pnpm docker git curl gh; do
   p="$(command -v "$tool" || true)"; [[ -n "$p" ]] && dirs+=("$(dirname "$p")")
 done
 dirs+=("$HOME/.local/bin" /opt/homebrew/bin /usr/local/bin /usr/bin /bin /usr/sbin /sbin)

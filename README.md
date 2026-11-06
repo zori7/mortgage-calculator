@@ -85,6 +85,27 @@ git log -p main..task/05-csv
 git merge task/05-csv
 ```
 
+### From GitHub issues
+
+The provisioner also watches the repo's GitHub issues (via `gh`, every 60s). Add
+the **`factory`** label to an issue you opened and it starts an OpenHands
+conversation for it, with no prompt from you:
+
+```
+factory → factory:running → (delivered, host check) → factory:review + PR "Closes #N"
+                                                     ↘ factory:failed + comment with the reason
+```
+
+- The agent's branch is `task/gh-<N>-<slug>`; progress is posted as issue comments.
+- On a passing host check, the branch is pushed to `origin` and a PR is opened.
+  `MT_GH_OPEN_PR=0` only comments instead.
+- To retry a failed issue, add `factory` again.
+- Only issues **opened by you** (`MT_GH_AUTHORS`, default: your `gh` user and the repo
+  owner) are taken, because the issue body becomes the agent's prompt.
+- At most 3 agents at once (`MT_GH_MAX_RUNNING`), and one slot is always left free for
+  host checks. Profile: `MT_GH_PROFILE` (default `claude-opusplan`). `MT_GH_ISSUES=0` turns it off.
+- `pnpm prov:issues` shows what it's tracking (state in `~/.mt-provisioner/issues.json`).
+
 ### Operate
 
 | Command                 | What it does                                          |
