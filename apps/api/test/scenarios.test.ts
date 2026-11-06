@@ -74,3 +74,18 @@ describe("scenarios", () => {
     expect(second.json()).toEqual(first.json());
   });
 });
+
+describe("cors", () => {
+  it("allows a cross-origin DELETE preflight", async () => {
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/scenarios/some-id",
+      headers: {
+        origin: "http://localhost:5183",
+        "access-control-request-method": "DELETE",
+      },
+    });
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toContain("DELETE");
+  });
+});
