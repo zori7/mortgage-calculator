@@ -23,7 +23,7 @@ export async function buildApp(deps: AppDeps, opts: FastifyServerOptions = {}) {
   app.decorate("prisma", deps.prisma);
   app.decorate("redis", deps.redis);
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, { origin: true, methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"] });
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ZodError) {
