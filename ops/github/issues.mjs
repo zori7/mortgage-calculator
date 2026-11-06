@@ -137,6 +137,14 @@ export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots, re
     authors = new Set((process.env.MT_GH_AUTHORS ?? `${me},${repo.split("/")[0]}`).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
     for (const [name, [color, description]] of Object.entries(LABEL_STYLE))
       await gh("label", "create", name, "-R", repo, "--color", color, "--description", description, "--force");
+    // A pickup the previous process didn't finish (restarted mid-start) never got a
+    // conversation: drop it so the issue is taken again if it still has the label.
+    for (const s of Object.values(load()))
+      if (s.status === "starting") {
+        set(s.number, { status: "interrupted", reason: "provisioner restarted while starting the agent" });
+        await relabel(s.number, L.todo, L.running);
+        log(`issues #${s.number}: pickup was interrupted by a restart; requeued`);
+      }
     log(`issues: watching ${repo} for label "${L.todo}" from ${[...authors].join(", ")} (profile ${PROFILE}, max ${MAX_RUNNING} at once)`);
   }
 
@@ -160,7 +168,7 @@ export function startIssues({ run, log, stateDir, repoDir, baseBranch, slots, re
       if (running >= MAX_RUNNING || free < 2) break; // keep a slot free for host verification
 
       const name = taskName(n, issue.title);
-      set(n, { status: "starting", title: issue.title, url: issue.url, name, branch: null, pr: null, startedAt: new Date().toISOString(), finishedAt: null, reason: null });
+      set(n, { status: "starting", title: issue.title, url: issue.url, name, branch: null, pr: null, conversationId: null, stoppedAt: null, startedAt: new Date().toISOString(), finishedAt: null, reason: null });
       await relabel(n, L.running, L.todo, L.failed, L.review);
       try {
         const conversationId = await startConversation(issue, name);
